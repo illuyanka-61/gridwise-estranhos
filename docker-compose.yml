@@ -1,0 +1,18 @@
+services:
+  gridwise-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: gridwise-api
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_HOST=0.0.0.0
+      - APP_PORT=8000
+      - ENVIRONMENT=production
+      - LOG_LEVEL=INFO
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
+      - LLM_BASE_URL=${LLM_BASE_URL:-https://api.openai.com/v1}
+      - LLM_TIMEOUT_SECONDS=${LLM_TIMEOUT_SECONDS:-15.0}
+    restart: unless-stopped
