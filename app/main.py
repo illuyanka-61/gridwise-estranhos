@@ -41,6 +41,14 @@ app = FastAPI(
 app.include_router(health_router)
 app.include_router(optimize_router)
 
+# Mount responsive web frontend
+from pathlib import Path
+from fastapi.staticfiles import StaticFiles
+
+static_dir = Path(__file__).resolve().parent.parent / "static"
+if static_dir.exists():
+    app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="static")
+
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
