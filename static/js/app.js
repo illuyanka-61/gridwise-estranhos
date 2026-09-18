@@ -256,6 +256,12 @@ document.addEventListener("DOMContentLoaded", () => {
       renderPlanResults(planResult, latencyMs);
       showToast(`Optimization Complete (${latencyMs}ms)`);
 
+      // On mobile viewports, automatically switch to Dispatch Analytics
+      if (window.innerWidth < 1024) {
+        setMobileView("main");
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+
     } catch (err) {
       showToast(`Network request failed: ${err.message}`, true);
     } finally {
@@ -593,6 +599,10 @@ document.addEventListener("DOMContentLoaded", () => {
     footBatteryFlow.textContent = sumBatteryFlow.toFixed(1);
     footEndSoC.textContent = plan[plan.length - 1].battery_energy_after_kwh.toFixed(1);
     footCost.textContent = sumCost.toFixed(2);
+
+    if (window.innerWidth < 1024) {
+      setMobileView("main");
+    }
   }
 
   // 11. Tab Switching
@@ -604,10 +614,60 @@ document.addEventListener("DOMContentLoaded", () => {
       btn.classList.add("active");
       const target = document.getElementById(btn.dataset.tab);
       if (target) target.classList.add("active");
+
+      // Force recalculation of chart canvas sizes if charts tab activated
+      if (btn.dataset.tab === "tabChartsView") {
+        setTimeout(() => {
+          chartGenBalance?.resize();
+          chartBatterySoC?.resize();
+          chartTariffGrid?.resize();
+        }, 60);
+      }
     });
   });
 
-  // 12. Copy JSON Action
+  // 12. Mobile Segmented View Navigation (< 1024px)
+  const emsWorkspace = document.getElementById("emsWorkspace");
+  const btnMobileSidebar = document.getElementById("btnMobileViewSidebar");
+  const btnMobileMain = document.getElementById("btnMobileViewMain");
+
+  function setMobileView(view) {
+    if (!emsWorkspace) return;
+    if (view === "sidebar") {
+      emsWorkspace.classList.remove("view-main");
+      emsWorkspace.classList.add("view-sidebar");
+      btnMobileSidebar?.classList.add("active");
+      btnMobileMain?.classList.remove("active");
+    } else {
+      emsWorkspace.classList.remove("view-sidebar");
+      emsWorkspace.classList.add("view-main");
+      btnMobileMain?.classList.add("active");
+      btnMobileSidebar?.classList.remove("active");
+      // Resize charts when switching into main panel view
+      setTimeout(() => {
+        chartGenBalance?.resize();
+        chartBatterySoC?.resize();
+        chartTariffGrid?.resize();
+      }, 60);
+    }
+  }
+
+  btnMobileSidebar?.addEventListener("click", () => setMobileView("sidebar"));
+  btnMobileMain?.addEventListener("click", () => setMobileView("main"));
+
+  // 13. Window Resize Event Listener
+  window.addEventListener("resize", () => {
+    if (window.innerWidth >= 1024 && emsWorkspace) {
+      emsWorkspace.classList.remove("view-sidebar", "view-main");
+    } else if (window.innerWidth < 1024 && emsWorkspace && !emsWorkspace.classList.contains("view-main") && !emsWorkspace.classList.contains("view-sidebar")) {
+      emsWorkspace.classList.add("view-sidebar");
+    }
+    chartGenBalance?.resize();
+    chartBatterySoC?.resize();
+    chartTariffGrid?.resize();
+  });
+
+  // 14. Copy JSON Action
   btnCopyJson.addEventListener("click", () => {
     navigator.clipboard.writeText(codeViewerBlock.textContent).then(() => {
       showToast("Copied JSON payload to clipboard");
