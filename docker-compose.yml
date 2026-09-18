@@ -16,4 +16,6 @@ services:
       - LLM_MODEL=${LLM_MODEL:-gemini-3.6-flash}
       - LLM_BASE_URL=${LLM_BASE_URL:-https://generativelanguage.googleapis.com/v1beta/openai/}
       - LLM_TIMEOUT_SECONDS=${LLM_TIMEOUT_SECONDS:-15.0}
+    volumes:
+      - ./static:/app/static
     restart: unless-stopped

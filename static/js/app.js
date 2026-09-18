@@ -1,42 +1,70 @@
 /**
- * GridWise Frontend Application Logic
- * BUP CSE Fest 2026: Smart Campus Energy Optimization Dashboard
+ * GridWise Enterprise Energy Management System (EMS)
+ * Frontend Application Controller • Production Grade
  */
 
 document.addEventListener("DOMContentLoaded", () => {
-  // State
+  // Application State
   let currentScenario = null;
-  let chartGeneration = null;
-  let chartBattery = null;
-  let chartTariff = null;
+  let chartGenBalance = null;
+  let chartBatterySoC = null;
+  let chartTariffGrid = null;
+  let isOptimizing = false;
 
-  // DOM Elements
-  const presetSelect = document.getElementById("presetSelect");
-  const notesContainer = document.getElementById("notesContainer");
-  const addNoteBtn = document.getElementById("addNoteBtn");
-  const optimizeBtn = document.getElementById("optimizeBtn");
-  const statusBadge = document.getElementById("statusBadge");
-  const statusText = document.getElementById("statusText");
+  // DOM Elements - Sidebar Controls
+  const presetSelect = document.getElementById("scenarioPresetSelect");
+  const notesContainer = document.getElementById("notesListContainer");
+  const btnAddNote = document.getElementById("btnAddNote");
+  const btnRunOptimizer = document.getElementById("btnRunOptimizer");
 
-  // Battery inputs
-  const inputCapacity = document.getElementById("batteryCapacity");
-  const inputInitial = document.getElementById("batteryInitial");
-  const inputMin = document.getElementById("batteryMin");
-  const inputMaxCharge = document.getElementById("batteryMaxCharge");
-  const inputMaxDischarge = document.getElementById("batteryMaxDischarge");
+  // BESS Inputs
+  const paramCapacity = document.getElementById("paramCapacity");
+  const paramInitial = document.getElementById("paramInitial");
+  const paramReserve = document.getElementById("paramReserve");
+  const paramMaxCharge = document.getElementById("paramMaxCharge");
+  const paramMaxDischarge = document.getElementById("paramMaxDischarge");
 
-  // Output containers
-  const kpiTotalCost = document.getElementById("kpiTotalCost");
-  const kpiTotalGrid = document.getElementById("kpiTotalGrid");
+  // Header & Status
+  const systemStatusPill = document.getElementById("systemStatusPill");
+  const systemStatusText = document.getElementById("systemStatusText");
+
+  // KPIs
+  const kpiCost = document.getElementById("kpiCost");
+  const kpiGridTotal = document.getElementById("kpiGridTotal");
   const kpiPeakGrid = document.getElementById("kpiPeakGrid");
   const kpiNeutrality = document.getElementById("kpiNeutrality");
-  const strategyBanner = document.getElementById("strategyBanner");
-  const strategyText = document.getElementById("strategyText");
-  const directivesList = document.getElementById("directivesList");
-  const tableBody = document.getElementById("dispatchTableBody");
-  const jsonOutput = document.getElementById("jsonOutput");
 
-  // 1. Initialize Presets Dropdown
+  // Summaries & Directives
+  const auditStrategySummaryText = document.getElementById("auditStrategySummaryText");
+  const directivesGridContainer = document.getElementById("directivesGridContainer");
+
+  // Ledger Table & Totals
+  const ledgerBody = document.getElementById("dispatchLedgerBody");
+  const footDemand = document.getElementById("footDemand");
+  const footSolarAvail = document.getElementById("footSolarAvail");
+  const footSolarUsed = document.getElementById("footSolarUsed");
+  const footGrid = document.getElementById("footGrid");
+  const footBatteryFlow = document.getElementById("footBatteryFlow");
+  const footEndSoC = document.getElementById("footEndSoC");
+  const footCost = document.getElementById("footCost");
+
+  // JSON Viewer & Toast
+  const codeViewerBlock = document.getElementById("codeViewerBlock");
+  const btnCopyJson = document.getElementById("btnCopyJson");
+  const toastBanner = document.getElementById("emsToast");
+  const toastMsg = document.getElementById("toastMsg");
+
+  // Toast Notification System
+  function showToast(message, isError = false) {
+    toastMsg.textContent = message;
+    toastBanner.style.borderColor = isError ? "var(--danger-rose)" : "var(--border-default)";
+    toastBanner.classList.add("show");
+    setTimeout(() => {
+      toastBanner.classList.remove("show");
+    }, 3500);
+  }
+
+  // 1. Initialize Scenario Presets
   function initPresets() {
     const presets = window.SAMPLE_PRESETS || [];
     presetSelect.innerHTML = "";
@@ -50,30 +78,30 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const customOpt = document.createElement("option");
     customOpt.value = "custom";
-    customOpt.textContent = "⚙️ Custom Scenario";
+    customOpt.textContent = "Custom Operating Scenario";
     presetSelect.appendChild(customOpt);
 
-    presetSelect.addEventListener("change", onPresetChange);
+    presetSelect.addEventListener("change", (e) => loadPreset(e.target.value));
+
     if (presets.length > 0) {
       loadPreset(0);
     }
   }
 
-  // 2. Load Preset
+  // 2. Load Preset Data
   function loadPreset(idx) {
     const presets = window.SAMPLE_PRESETS || [];
     if (idx === "custom" || !presets[idx]) {
-      // Setup a custom blank scenario
       currentScenario = {
         scenario_id: "CUSTOM-01",
         operator_notes: [
-          "Reduce solar availability by 50% from 11 AM until 2 PM.",
-          "Do not charge the battery between 2 PM and 5 PM."
+          "Expect an 80% reduction in rooftop solar between 11 AM and 2 PM due to maintenance.",
+          "The battery charger will be isolated from 2 PM until 4 PM."
         ],
         hours: Array.from({ length: 24 }, (_, h) => ({
           hour: h,
-          demand_kwh: 120 + Math.sin(h / 3) * 30,
-          solar_kwh: (h >= 7 && h <= 17) ? Math.max(0, 160 - Math.abs(h - 12) * 30) : 0,
+          demand_kwh: Math.round(110 + Math.sin(h / 3.5) * 35),
+          solar_kwh: (h >= 7 && h <= 17) ? Math.max(0, Math.round(150 - Math.abs(h - 12) * 28)) : 0,
           tariff_bdt_per_kwh: (h >= 18 && h <= 21) ? 22 : (h < 6 ? 7 : 14)
         })),
         battery: {
@@ -88,117 +116,122 @@ document.addEventListener("DOMContentLoaded", () => {
       currentScenario = JSON.parse(JSON.stringify(presets[idx].input));
     }
 
-    renderScenarioInputs();
+    renderInputs();
   }
 
-  function onPresetChange(e) {
-    loadPreset(e.target.value);
-  }
-
-  // 3. Render Inputs to Form
-  function renderScenarioInputs() {
+  // 3. Render Inputs to Controls
+  function renderInputs() {
     if (!currentScenario) return;
 
-    // Battery
-    inputCapacity.value = currentScenario.battery.capacity_kwh;
-    inputInitial.value = currentScenario.battery.initial_energy_kwh;
-    inputMin.value = currentScenario.battery.minimum_energy_kwh;
-    inputMaxCharge.value = currentScenario.battery.max_charge_kwh_per_hour;
-    inputMaxDischarge.value = currentScenario.battery.max_discharge_kwh_per_hour;
+    paramCapacity.value = currentScenario.battery.capacity_kwh;
+    paramInitial.value = currentScenario.battery.initial_energy_kwh;
+    paramReserve.value = currentScenario.battery.minimum_energy_kwh;
+    paramMaxCharge.value = currentScenario.battery.max_charge_kwh_per_hour;
+    paramMaxDischarge.value = currentScenario.battery.max_discharge_kwh_per_hour;
 
-    // Notes
     renderNotes();
   }
 
+  // 4. Render Notes List
   function renderNotes() {
     notesContainer.innerHTML = "";
     const notes = currentScenario.operator_notes || [];
 
     notes.forEach((note, i) => {
-      const item = document.createElement("div");
-      item.className = "note-item animate-fade-in";
-      item.innerHTML = `
-        <div class="note-item-header">
-          <span class="note-tag">Note [${i}]</span>
-          ${notes.length > 1 ? `<button type="button" class="remove-note-btn" data-index="${i}">✕ Remove</button>` : ""}
+      const row = document.createElement("div");
+      row.className = "note-row";
+      row.innerHTML = `
+        <div class="note-row-top">
+          <span class="note-num">NOTE [${i}]</span>
+          ${notes.length > 1 ? `<button type="button" class="note-remove-link" data-index="${i}">Remove</button>` : ""}
         </div>
-        <textarea class="form-textarea note-textarea" rows="2" data-index="${i}">${note}</textarea>
+        <textarea class="note-text-editor" data-index="${i}" rows="2">${note}</textarea>
       `;
-      notesContainer.appendChild(item);
+      notesContainer.appendChild(row);
     });
 
-    // Update listeners
-    document.querySelectorAll(".note-textarea").forEach(ta => {
+    // Update note listeners
+    document.querySelectorAll(".note-text-editor").forEach(ta => {
       ta.addEventListener("input", (e) => {
-        const idx = parseInt(e.target.dataset.index);
-        currentScenario.operator_notes[idx] = e.target.value;
+        const i = parseInt(e.target.dataset.index);
+        currentScenario.operator_notes[i] = e.target.value;
       });
     });
 
-    document.querySelectorAll(".remove-note-btn").forEach(btn => {
+    document.querySelectorAll(".note-remove-link").forEach(btn => {
       btn.addEventListener("click", (e) => {
-        const idx = parseInt(e.target.dataset.index);
-        currentScenario.operator_notes.splice(idx, 1);
+        const i = parseInt(e.target.dataset.index);
+        currentScenario.operator_notes.splice(i, 1);
         renderNotes();
-        updateAddButtonState();
       });
     });
 
-    updateAddButtonState();
+    btnAddNote.style.display = notes.length >= 3 ? "none" : "inline-flex";
   }
 
-  function updateAddButtonState() {
-    const count = (currentScenario.operator_notes || []).length;
-    addNoteBtn.style.display = count >= 3 ? "none" : "flex";
-  }
-
-  addNoteBtn.addEventListener("click", () => {
+  btnAddNote.addEventListener("click", () => {
     if ((currentScenario.operator_notes || []).length < 3) {
       currentScenario.operator_notes.push("");
       renderNotes();
     }
   });
 
-  // 4. Probe Backend Health
-  async function checkHealth() {
+  // Quick Directive Injector Chips
+  document.querySelectorAll(".preset-chip").forEach(chip => {
+    chip.addEventListener("click", () => {
+      const noteText = chip.dataset.note;
+      const notes = currentScenario.operator_notes || [];
+      if (notes.length < 3) {
+        notes.push(noteText);
+      } else {
+        notes[notes.length - 1] = noteText;
+      }
+      renderNotes();
+      showToast("Injected directive note");
+    });
+  });
+
+  // 5. System Health Check
+  async function checkBackendHealth() {
     try {
       const res = await fetch("/health");
       if (res.ok) {
         const data = await res.json();
         if (data.status === "ok") {
-          statusBadge.classList.remove("offline");
-          statusText.textContent = "Live Backend Ready";
-          return true;
+          systemStatusPill.classList.remove("offline");
+          systemStatusText.textContent = "Online (200 OK)";
+          return;
         }
       }
     } catch (err) {
-      console.warn("Backend health check failed:", err);
+      console.warn("Backend poll error:", err);
     }
-    statusBadge.classList.add("offline");
-    statusText.textContent = "Backend Offline";
-    return false;
+    systemStatusPill.classList.add("offline");
+    systemStatusText.textContent = "Offline (Connection Error)";
   }
 
-  // 5. Trigger Optimization API Call
-  async function runOptimization() {
-    optimizeBtn.disabled = true;
-    optimizeBtn.innerHTML = `
-      <svg class="animate-spin" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+  // 6. Run Mathematical Optimization
+  async function executeOptimization() {
+    if (isOptimizing) return;
+    isOptimizing = true;
+    btnRunOptimizer.disabled = true;
+    btnRunOptimizer.innerHTML = `
+      <svg class="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <circle cx="12" cy="12" r="10" stroke-opacity="0.25"></circle>
         <path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"></path>
       </svg>
-      Optimizing Energy Schedule...
+      Computing Optimal Schedule...
     `;
 
-    // Sync battery inputs
-    currentScenario.battery.capacity_kwh = parseFloat(inputCapacity.value) || 200;
-    currentScenario.battery.initial_energy_kwh = parseFloat(inputInitial.value) || 100;
-    currentScenario.battery.minimum_energy_kwh = parseFloat(inputMin.value) || 40;
-    currentScenario.battery.max_charge_kwh_per_hour = parseFloat(inputMaxCharge.value) || 50;
-    currentScenario.battery.max_discharge_kwh_per_hour = parseFloat(inputMaxDischarge.value) || 50;
+    // Sync state from inputs
+    currentScenario.battery.capacity_kwh = parseFloat(paramCapacity.value) || 200;
+    currentScenario.battery.initial_energy_kwh = parseFloat(paramInitial.value) || 100;
+    currentScenario.battery.minimum_energy_kwh = parseFloat(paramReserve.value) || 40;
+    currentScenario.battery.max_charge_kwh_per_hour = parseFloat(paramMaxCharge.value) || 50;
+    currentScenario.battery.max_discharge_kwh_per_hour = parseFloat(paramMaxDischarge.value) || 50;
 
-    // Filter out empty notes
-    currentScenario.operator_notes = currentScenario.operator_notes.filter(n => n && n.trim().length > 0);
+    // Filter empty notes
+    currentScenario.operator_notes = (currentScenario.operator_notes || []).filter(n => n && n.trim().length > 0);
     if (currentScenario.operator_notes.length === 0) {
       currentScenario.operator_notes = ["Normal campus operation."];
     }
@@ -211,152 +244,165 @@ document.addEventListener("DOMContentLoaded", () => {
         body: JSON.stringify(currentScenario)
       });
 
-      const elapsed = ((performance.now() - t0) / 1000).toFixed(3);
+      const latencyMs = Math.round(performance.now() - t0);
 
       if (!response.ok) {
-        const errData = await response.json();
-        alert(`Optimization Error (${response.status}):\n${JSON.stringify(errData, null, 2)}`);
+        const errPayload = await response.json().catch(() => ({}));
+        showToast(`Optimization Failed (${response.status}): ${errPayload.detail || "Check scenario bounds"}`, true);
         return;
       }
 
-      const result = await response.json();
-      renderOptimizationResults(result, elapsed);
+      const planResult = await response.json();
+      renderPlanResults(planResult, latencyMs);
+      showToast(`Optimization Complete (${latencyMs}ms)`);
 
     } catch (err) {
-      alert(`Network / Service Error: ${err.message}`);
+      showToast(`Network request failed: ${err.message}`, true);
     } finally {
-      optimizeBtn.disabled = false;
-      optimizeBtn.innerHTML = `
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      isOptimizing = false;
+      btnRunOptimizer.disabled = false;
+      btnRunOptimizer.innerHTML = `
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
         </svg>
-        Run Mathematical Optimization
+        Compute Optimal Dispatch Plan
       `;
     }
   }
 
-  optimizeBtn.addEventListener("click", runOptimization);
+  btnRunOptimizer.addEventListener("click", executeOptimization);
 
-  // 6. Render Optimization Results
-  function renderOptimizationResults(data, elapsed) {
-    // Top KPIs
-    kpiTotalCost.textContent = `${data.total_cost_bdt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    kpiTotalGrid.textContent = `${data.total_grid_kwh.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}`;
-    kpiPeakGrid.textContent = `${data.peak_grid_kwh.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}`;
-    
-    // Battery neutrality check
+  // 7. Render Optimization Results
+  function renderPlanResults(data, latencyMs) {
+    // 1. KPIs
+    kpiCost.textContent = data.total_cost_bdt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    kpiGridTotal.textContent = data.total_grid_kwh.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    kpiPeakGrid.textContent = data.peak_grid_kwh.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+
     const plan = data.hourly_plan;
-    const initialE = currentScenario.battery.initial_energy_kwh;
+    const initE = currentScenario.battery.initial_energy_kwh;
     const finalE = plan[plan.length - 1].battery_energy_after_kwh;
-    const isNeutral = Math.abs(finalE - initialE) <= 0.05;
-    
-    kpiNeutrality.textContent = isNeutral ? "✓ Verified (E₂₃ = E₀)" : "⚠️ Neutrality Error";
-    kpiNeutrality.style.color = isNeutral ? "var(--emerald-400)" : "var(--rose-400)";
+    const deltaE = Math.abs(finalE - initE);
 
-    // Strategy Banner
-    strategyText.textContent = `${data.plan_summary} (Solved in ${elapsed}s via OR-Tools GLOP)`;
-    strategyBanner.style.display = "block";
+    if (deltaE <= 0.05) {
+      kpiNeutrality.textContent = "Verified (E₂₃ = E₀)";
+      kpiNeutrality.style.color = "var(--success-emerald)";
+    } else {
+      kpiNeutrality.textContent = `ΔE = ${deltaE.toFixed(2)} kWh`;
+      kpiNeutrality.style.color = "var(--danger-rose)";
+    }
 
-    // Directives
+    // 2. Strategy & Audit Summary
+    auditStrategySummaryText.textContent = `${data.plan_summary} (Solved in ${latencyMs}ms via OR-Tools GLOP)`;
+
+    // 3. Directives List
     renderDirectives(data.directive_interpretation);
 
-    // Render Charts
+    // 4. Visual Charts
     renderCharts(data, currentScenario);
 
-    // Render Table
-    renderTable(data.hourly_plan, currentScenario.hours);
+    // 5. 24h Ledger Table & Footers
+    renderLedger(data.hourly_plan, currentScenario.hours);
 
-    // Render Raw JSON
-    jsonOutput.textContent = JSON.stringify(data, null, 2);
+    // 6. JSON Inspector
+    codeViewerBlock.textContent = JSON.stringify(data, null, 2);
   }
 
-  // 7. Render Directives Cards
+  // 8. Render Directives
   function renderDirectives(directives) {
-    directivesList.innerHTML = "";
+    directivesGridContainer.innerHTML = "";
     if (!directives || directives.length === 0) {
-      directivesList.innerHTML = "<p class='text-muted'>No directives processed.</p>";
+      directivesGridContainer.innerHTML = "<span style='font-size: 11px; color: var(--text-muted);'>No active directives extracted.</span>";
       return;
     }
 
     directives.forEach(d => {
-      const card = document.createElement("div");
-      card.className = "directive-card animate-fade-in";
+      const item = document.createElement("div");
+      item.className = "directive-badge-item";
 
-      let adjDetails = "";
-      if (d.structured_adjustment) {
-        const adj = d.structured_adjustment;
-        const hoursStr = `Hours: [${adj.hours.join(", ")}]`;
-        let paramStr = "";
-        if (adj.factor !== undefined) paramStr = `Factor: ${(adj.factor * 100).toFixed(0)}%`;
-        if (adj.minimum_energy_kwh !== undefined) paramStr = `Min: ${adj.minimum_energy_kwh} kWh`;
-        if (adj.max_grid_kwh !== undefined) paramStr = `Max Grid: ${adj.max_grid_kwh} kWh`;
+      let pillClass = "noop";
+      let paramStr = "No Schedule Impact";
 
-        adjDetails = `${hoursStr} ${paramStr ? "• " + paramStr : ""}`;
-      } else {
-        adjDetails = "applies: false (no_op)";
+      if (d.directive_type === "solar_reduction") {
+        pillClass = "solar";
+        if (d.structured_adjustment) {
+          paramStr = `Hours: [${d.structured_adjustment.hours.join(", ")}] • Factor: ${(d.structured_adjustment.factor * 100).toFixed(0)}%`;
+        }
+      } else if (d.directive_type === "minimum_battery_reserve") {
+        pillClass = "battery";
+        if (d.structured_adjustment) {
+          paramStr = `Hours: [${d.structured_adjustment.hours.join(", ")}] • Reserve: ${d.structured_adjustment.minimum_energy_kwh} kWh`;
+        }
+      } else if (d.directive_type === "no_charge_window" || d.directive_type === "no_discharge_window") {
+        pillClass = "battery";
+        if (d.structured_adjustment) {
+          paramStr = `Hours: [${d.structured_adjustment.hours.join(", ")}]`;
+        }
+      } else if (d.directive_type === "max_grid_window") {
+        pillClass = "grid";
+        if (d.structured_adjustment) {
+          paramStr = `Hours: [${d.structured_adjustment.hours.join(", ")}] • Cap: ${d.structured_adjustment.max_grid_kwh} kWh`;
+        }
       }
 
-      card.innerHTML = `
-        <div class="directive-meta">
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <span class="directive-badge badge-${d.directive_type}">${d.directive_type}</span>
-            <span style="font-size: 11px; font-weight: 700; color: ${d.applies ? 'var(--emerald-400)' : 'var(--text-dim)'}">
-              ${d.applies ? '● APPLIES' : '○ NO-OP'}
-            </span>
-          </div>
-          <div class="directive-note-text">${d.explanation || ""}</div>
+      item.innerHTML = `
+        <div class="directive-badge-top">
+          <span class="badge-pill ${pillClass}">${d.directive_type}</span>
+          <span style="font-size: 10px; font-family: var(--font-data); font-weight: 700; color: ${d.applies ? 'var(--success-emerald)' : 'var(--text-muted)'}">
+            ${d.applies ? 'APPLIED' : 'NO-OP'}
+          </span>
         </div>
-        <div class="directive-params">${adjDetails}</div>
+        <div class="directive-note-quote">${d.explanation || ""}</div>
+        <div class="directive-exact-params">${paramStr}</div>
       `;
 
-      directivesList.appendChild(card);
+      directivesGridContainer.appendChild(item);
     });
   }
 
-  // 8. Render Visualizations with Chart.js
+  // 9. Render Dispatch Visualizations
   function renderCharts(resData, reqData) {
     const plan = resData.hourly_plan;
     const hours = reqData.hours;
-    const labels = plan.map(p => `${p.hour}:00`);
+    const labels = plan.map(p => `${p.hour.toString().padStart(2, "0")}:00`);
 
-    // Chart 1: Energy Generation & Balance
-    const ctxGen = document.getElementById("chartGeneration").getContext("2d");
-    if (chartGeneration) chartGeneration.destroy();
+    // Chart 1: Generation & Load Balance Stack
+    const ctxGen = document.getElementById("canvasGenBalance").getContext("2d");
+    if (chartGenBalance) chartGenBalance.destroy();
 
-    chartGeneration = new Chart(ctxGen, {
+    chartGenBalance = new Chart(ctxGen, {
       type: "bar",
       data: {
         labels: labels,
         datasets: [
           {
-            label: "Solar Used (kWh)",
+            label: "Solar Utilized",
             data: plan.map(p => p.solar_used_kwh),
-            backgroundColor: "rgba(245, 158, 11, 0.8)",
-            borderRadius: 4,
+            backgroundColor: "#eab308",
             stack: "gen",
+            borderRadius: 2,
           },
           {
-            label: "Grid Purchased (kWh)",
+            label: "Grid Purchased",
             data: plan.map(p => p.grid_kwh),
-            backgroundColor: "rgba(56, 189, 248, 0.8)",
-            borderRadius: 4,
+            backgroundColor: "#38bdf8",
             stack: "gen",
+            borderRadius: 2,
           },
           {
-            label: "Battery Discharge (kWh)",
+            label: "Battery Discharge",
             data: plan.map(p => p.battery_action === "discharge" ? p.battery_kwh : 0),
-            backgroundColor: "rgba(168, 85, 247, 0.8)",
-            borderRadius: 4,
+            backgroundColor: "#a855f7",
             stack: "gen",
+            borderRadius: 2,
           },
           {
-            label: "Campus Demand (kWh)",
+            label: "Campus Demand",
             data: hours.map(h => h.demand_kwh),
             type: "line",
             borderColor: "#f43f5e",
-            borderWidth: 2.5,
-            pointBackgroundColor: "#f43f5e",
-            pointRadius: 3,
+            borderWidth: 2,
+            pointRadius: 2,
             fill: false,
           }
         ]
@@ -364,64 +410,63 @@ document.addEventListener("DOMContentLoaded", () => {
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        interaction: { mode: "index", intersect: false },
         plugins: {
-          legend: { labels: { color: "#94a3b8", font: { family: "Plus Jakarta Sans" } } },
+          legend: { display: false },
           tooltip: {
-            backgroundColor: "#0e1422",
-            borderColor: "rgba(255,255,255,0.1)",
+            backgroundColor: "#0d131f",
+            borderColor: "#1e293b",
             borderWidth: 1,
-            titleFont: { family: "Plus Jakarta Sans" },
-            bodyFont: { family: "JetBrains Mono" }
+            titleFont: { family: "Inter", size: 12 },
+            bodyFont: { family: "JetBrains Mono", size: 11 },
+            padding: 8
           }
         },
         scales: {
-          x: { grid: { color: "rgba(255,255,255,0.05)" }, ticks: { color: "#64748b" } },
-          y: { grid: { color: "rgba(255,255,255,0.05)" }, ticks: { color: "#64748b" }, title: { display: true, text: "Energy (kWh)", color: "#94a3b8" } }
+          x: { grid: { color: "rgba(255,255,255,0.03)" }, ticks: { color: "#64748b", font: { family: "JetBrains Mono", size: 10 } } },
+          y: { grid: { color: "rgba(255,255,255,0.03)" }, ticks: { color: "#64748b", font: { family: "JetBrains Mono", size: 10 } } }
         }
       }
     });
 
-    // Chart 2: Battery State of Charge (SoC)
-    const ctxBattery = document.getElementById("chartBattery").getContext("2d");
-    if (chartBattery) chartBattery.destroy();
+    // Chart 2: Battery SoC Curve
+    const ctxBattery = document.getElementById("canvasBatterySoC").getContext("2d");
+    if (chartBatterySoC) chartBatterySoC.destroy();
 
-    const capacity = reqData.battery.capacity_kwh;
-    const baseMin = reqData.battery.minimum_energy_kwh;
+    const cap = reqData.battery.capacity_kwh;
+    const minReserve = reqData.battery.minimum_energy_kwh;
 
-    chartBattery = new Chart(ctxBattery, {
+    chartBatterySoC = new Chart(ctxBattery, {
       type: "line",
       data: {
         labels: labels,
         datasets: [
           {
-            label: "Battery Energy After Hour (kWh)",
+            label: "Storage SoC (kWh)",
             data: plan.map(p => p.battery_energy_after_kwh),
             borderColor: "#38bdf8",
-            borderWidth: 3,
-            backgroundColor: "rgba(56, 189, 248, 0.12)",
+            backgroundColor: "rgba(56, 189, 248, 0.08)",
+            borderWidth: 2,
             fill: true,
-            tension: 0.3,
-            pointRadius: 4,
-            pointHoverRadius: 6,
+            tension: 0.2,
+            pointRadius: 2,
           },
           {
-            label: "Base Min Reserve (kWh)",
-            data: Array(24).fill(baseMin),
+            label: "Base Reserve",
+            data: Array(24).fill(minReserve),
             borderColor: "#f43f5e",
+            borderDash: [4, 4],
             borderWidth: 1.5,
-            borderDash: [5, 5],
-            fill: false,
             pointRadius: 0,
+            fill: false,
           },
           {
-            label: "Capacity Limit (kWh)",
-            data: Array(24).fill(capacity),
-            borderColor: "#94a3b8",
+            label: "Nameplate Capacity",
+            data: Array(24).fill(cap),
+            borderColor: "#64748b",
+            borderDash: [2, 2],
             borderWidth: 1,
-            borderDash: [3, 3],
-            fill: false,
             pointRadius: 0,
+            fill: false,
           }
         ]
       },
@@ -429,46 +474,45 @@ document.addEventListener("DOMContentLoaded", () => {
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
-          legend: { labels: { color: "#94a3b8", font: { family: "Plus Jakarta Sans" } } },
+          legend: { display: false },
           tooltip: {
-            backgroundColor: "#0e1422",
-            borderColor: "rgba(255,255,255,0.1)",
+            backgroundColor: "#0d131f",
+            borderColor: "#1e293b",
             borderWidth: 1,
-            bodyFont: { family: "JetBrains Mono" }
+            bodyFont: { family: "JetBrains Mono", size: 11 }
           }
         },
         scales: {
-          x: { grid: { color: "rgba(255,255,255,0.05)" }, ticks: { color: "#64748b" } },
-          y: { grid: { color: "rgba(255,255,255,0.05)" }, ticks: { color: "#64748b" }, min: 0, max: capacity * 1.1 }
+          x: { grid: { color: "rgba(255,255,255,0.03)" }, ticks: { color: "#64748b", font: { family: "JetBrains Mono", size: 9 } } },
+          y: { grid: { color: "rgba(255,255,255,0.03)" }, ticks: { color: "#64748b", font: { family: "JetBrains Mono", size: 9 } }, min: 0, max: cap * 1.05 }
         }
       }
     });
 
-    // Chart 3: Grid Import vs Tariff (Economic Dispatch)
-    const ctxTariff = document.getElementById("chartTariff").getContext("2d");
-    if (chartTariff) chartTariff.destroy();
+    // Chart 3: Tariff Arbitrage (Grid vs Price)
+    const ctxTariff = document.getElementById("canvasTariffGrid").getContext("2d");
+    if (chartTariffGrid) chartTariffGrid.destroy();
 
-    chartTariff = new Chart(ctxTariff, {
+    chartTariffGrid = new Chart(ctxTariff, {
       type: "bar",
       data: {
         labels: labels,
         datasets: [
           {
-            label: "Grid Purchased (kWh)",
+            label: "Grid Intake (kWh)",
             data: plan.map(p => p.grid_kwh),
-            backgroundColor: "rgba(56, 189, 248, 0.75)",
+            backgroundColor: "#38bdf8",
             yAxisID: "yGrid",
-            borderRadius: 4,
+            borderRadius: 2,
           },
           {
-            label: "Tariff (BDT/kWh)",
+            label: "Tariff (BDT)",
             data: hours.map(h => h.tariff_bdt_per_kwh),
             type: "line",
-            borderColor: "#fbbf24",
-            borderWidth: 2.5,
-            pointBackgroundColor: "#fbbf24",
+            borderColor: "#eab308",
+            borderWidth: 2,
+            pointRadius: 2,
             yAxisID: "yTariff",
-            tension: 0.2,
           }
         ]
       },
@@ -476,58 +520,86 @@ document.addEventListener("DOMContentLoaded", () => {
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
-          legend: { labels: { color: "#94a3b8", font: { family: "Plus Jakarta Sans" } } }
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: "#0d131f",
+            borderColor: "#1e293b",
+            borderWidth: 1,
+            bodyFont: { family: "JetBrains Mono", size: 11 }
+          }
         },
         scales: {
-          x: { grid: { color: "rgba(255,255,255,0.05)" }, ticks: { color: "#64748b" } },
+          x: { grid: { color: "rgba(255,255,255,0.03)" }, ticks: { color: "#64748b", font: { family: "JetBrains Mono", size: 9 } } },
           yGrid: {
             type: "linear",
             position: "left",
-            grid: { color: "rgba(255,255,255,0.05)" },
-            ticks: { color: "#38bdf8" },
-            title: { display: true, text: "Grid (kWh)", color: "#38bdf8" }
+            grid: { color: "rgba(255,255,255,0.03)" },
+            ticks: { color: "#38bdf8", font: { family: "JetBrains Mono", size: 9 } }
           },
           yTariff: {
             type: "linear",
             position: "right",
             grid: { drawOnChartArea: false },
-            ticks: { color: "#fbbf24" },
-            title: { display: true, text: "Tariff (BDT/kWh)", color: "#fbbf24" }
+            ticks: { color: "#eab308", font: { family: "JetBrains Mono", size: 9 } }
           }
         }
       }
     });
   }
 
-  // 9. Render Dispatch Table
-  function renderTable(plan, hours) {
-    tableBody.innerHTML = "";
-    plan.forEach((p, h) => {
-      const row = document.createElement("tr");
-      const hourData = hours[h];
-      const cost = (p.grid_kwh * hourData.tariff_bdt_per_kwh).toFixed(2);
+  // 10. Render Ledger Table & Calculate Sums
+  function renderLedger(plan, hours) {
+    ledgerBody.innerHTML = "";
 
+    let sumDemand = 0.0;
+    let sumSolarAvail = 0.0;
+    let sumSolarUsed = 0.0;
+    let sumGrid = 0.0;
+    let sumBatteryFlow = 0.0;
+    let sumCost = 0.0;
+
+    plan.forEach((p, h) => {
+      const hData = hours[h];
+      const cost = p.grid_kwh * hData.tariff_bdt_per_kwh;
+
+      sumDemand += hData.demand_kwh;
+      sumSolarAvail += hData.solar_kwh;
+      sumSolarUsed += p.solar_used_kwh;
+      sumGrid += p.grid_kwh;
+      sumBatteryFlow += p.battery_kwh;
+      sumCost += cost;
+
+      const row = document.createElement("tr");
       row.innerHTML = `
-        <td style="font-weight: 700; font-family: var(--font-mono)">${p.hour}:00</td>
-        <td>${hourData.demand_kwh.toFixed(1)}</td>
-        <td style="color: var(--amber-400)">${hourData.solar_kwh.toFixed(1)}</td>
-        <td style="color: var(--amber-400); font-weight: 600">${p.solar_used_kwh.toFixed(1)}</td>
-        <td style="color: var(--cyan-400); font-weight: 600">${p.grid_kwh.toFixed(1)}</td>
-        <td><span class="badge-action ${p.battery_action}">${p.battery_action}</span></td>
-        <td style="font-family: var(--font-mono)">${p.battery_kwh > 0 ? p.battery_kwh.toFixed(1) : "—"}</td>
-        <td style="font-weight: 600">${p.battery_energy_after_kwh.toFixed(1)}</td>
-        <td>${hourData.tariff_bdt_per_kwh.toFixed(1)}</td>
-        <td style="font-weight: 700; color: var(--emerald-400)">${cost}</td>
+        <td style="font-family: var(--font-data); font-weight: 600;">${p.hour.toString().padStart(2, "0")}:00</td>
+        <td class="num-col">${hData.demand_kwh.toFixed(1)}</td>
+        <td class="num-col" style="color: var(--text-muted);">${hData.solar_kwh.toFixed(1)}</td>
+        <td class="num-col" style="color: var(--solar-amber); font-weight: 600;">${p.solar_used_kwh.toFixed(1)}</td>
+        <td class="num-col" style="color: var(--grid-sky); font-weight: 600;">${p.grid_kwh.toFixed(1)}</td>
+        <td><span class="action-chip ${p.battery_action}">${p.battery_action}</span></td>
+        <td class="num-col" style="color: var(--battery-purple);">${p.battery_kwh > 0 ? p.battery_kwh.toFixed(1) : "—"}</td>
+        <td class="num-col" style="font-weight: 600;">${p.battery_energy_after_kwh.toFixed(1)}</td>
+        <td class="num-col" style="color: var(--text-muted);">${hData.tariff_bdt_per_kwh.toFixed(1)}</td>
+        <td class="num-col" style="font-weight: 700; color: #fff;">${cost.toFixed(2)}</td>
       `;
-      tableBody.appendChild(row);
+      ledgerBody.appendChild(row);
     });
+
+    // Populate Ledger Totals Footer
+    footDemand.textContent = sumDemand.toFixed(1);
+    footSolarAvail.textContent = sumSolarAvail.toFixed(1);
+    footSolarUsed.textContent = sumSolarUsed.toFixed(1);
+    footGrid.textContent = sumGrid.toFixed(1);
+    footBatteryFlow.textContent = sumBatteryFlow.toFixed(1);
+    footEndSoC.textContent = plan[plan.length - 1].battery_energy_after_kwh.toFixed(1);
+    footCost.textContent = sumCost.toFixed(2);
   }
 
-  // 10. Tab Switching
-  document.querySelectorAll(".tab-btn").forEach(btn => {
+  // 11. Tab Switching
+  document.querySelectorAll(".ems-tab-btn").forEach(btn => {
     btn.addEventListener("click", () => {
-      document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
-      document.querySelectorAll(".tab-pane").forEach(p => p.classList.remove("active"));
+      document.querySelectorAll(".ems-tab-btn").forEach(b => b.classList.remove("active"));
+      document.querySelectorAll(".ems-tab-content").forEach(c => c.classList.remove("active"));
 
       btn.classList.add("active");
       const target = document.getElementById(btn.dataset.tab);
@@ -535,11 +607,20 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  // Init
-  initPresets();
-  checkHealth();
-  setInterval(checkHealth, 15000);
+  // 12. Copy JSON Action
+  btnCopyJson.addEventListener("click", () => {
+    navigator.clipboard.writeText(codeViewerBlock.textContent).then(() => {
+      showToast("Copied JSON payload to clipboard");
+    }).catch(() => {
+      showToast("Clipboard copy failed", true);
+    });
+  });
 
-  // Auto-run first scenario for instant preview!
-  setTimeout(runOptimization, 400);
+  // Startup
+  initPresets();
+  checkBackendHealth();
+  setInterval(checkBackendHealth, 12000);
+
+  // Auto-run initial computation
+  setTimeout(executeOptimization, 300);
 });
