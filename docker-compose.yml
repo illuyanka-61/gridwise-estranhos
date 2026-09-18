@@ -12,7 +12,8 @@ services:
       - ENVIRONMENT=production
       - LOG_LEVEL=INFO
       - LLM_API_KEY=${LLM_API_KEY:-}
-      - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
-      - LLM_BASE_URL=${LLM_BASE_URL:-https://api.openai.com/v1}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - LLM_MODEL=${LLM_MODEL:-gemini-3.6-flash}
+      - LLM_BASE_URL=${LLM_BASE_URL:-https://generativelanguage.googleapis.com/v1beta/openai/}
       - LLM_TIMEOUT_SECONDS=${LLM_TIMEOUT_SECONDS:-15.0}
     restart: unless-stopped

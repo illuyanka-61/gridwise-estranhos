@@ -9,9 +9,10 @@ RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
 COPY requirements.txt .
 RUN pip install --no-cache-dir uv && uv pip install --system --no-cache -r requirements.txt
 
-# Copy source code and test samples
+# Copy source code, frontend assets, and test samples
 COPY app /app/app
 COPY sample_cases /app/sample_cases
+COPY static /app/static
 
 # Set permissions
 RUN chown -R appuser:appgroup /app
