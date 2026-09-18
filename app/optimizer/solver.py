@@ -27,7 +27,7 @@ def solve_scenario(
     hours: list[HourData],
     battery: BatterySpecs,
     constraints: AppliedDirectiveConstraints,
-    peak_penalty_weight: float = 1e-4,
+    peak_penalty_weight: float = 0.0,
 ) -> tuple[list[HourlyPlanEntry], float, float, float]:
     """
     Solves the 24-hour campus energy schedule using OR-Tools GLOP.
@@ -36,7 +36,7 @@ def solve_scenario(
         tuple: (hourly_plan, total_grid_kwh, total_cost_bdt, peak_grid_kwh)
     """
     solver, variables = create_optimizer_model(hours, battery, constraints)
-    add_constraints(solver, variables, hours, battery)
+    add_constraints(solver, variables, hours, battery, peak_penalty_weight=peak_penalty_weight)
     set_objective(solver, variables, hours, peak_penalty_weight=peak_penalty_weight)
 
     status = solver.Solve()
@@ -49,23 +49,39 @@ def solve_scenario(
     hourly_plan: list[HourlyPlanEntry] = []
 
     for h in range(24):
-        g_val = round(max(0.0, variables.G[h].solution_value()), 4)
-        s_val = round(max(0.0, variables.S[h].solution_value()), 4)
+        # Grid import clamped between 0 and max_grid_limit
+        max_g = constraints.max_grid_limit[h]
+        g_raw = max(0.0, variables.G[h].solution_value())
+        g_val = round(min(max_g, g_raw) if max_g < float("inf") else g_raw, 4)
+
+        # Solar used clamped between 0 and effective_solar
+        eff_s = constraints.effective_solar[h]
+        s_val = round(min(eff_s, max(0.0, variables.S[h].solution_value())), 4)
+
         c_val = max(0.0, variables.C[h].solution_value())
         d_val = max(0.0, variables.D[h].solution_value())
-        e_val = round(max(0.0, variables.E[h].solution_value()), 4)
 
         # Net out battery action to ensure strictly one of charge/discharge/idle
         net_battery = c_val - d_val
-        if net_battery > 1e-3:
+        if net_battery > 1e-4:
             action: Literal["charge", "discharge", "idle"] = "charge"
             kwh = round(net_battery, 4)
-        elif net_battery < -1e-3:
+        elif net_battery < -1e-4:
             action = "discharge"
             kwh = round(-net_battery, 4)
         else:
             action = "idle"
             kwh = 0.0
+
+        # Battery energy clamped between active reserve and capacity
+        min_res = constraints.min_battery_reserve[h]
+        cap = battery.capacity_kwh
+        if h == 23:
+            # End-of-day battery neutrality: exactly initial_energy_kwh
+            e_val = round(battery.initial_energy_kwh, 4)
+        else:
+            e_raw = variables.E[h].solution_value()
+            e_val = round(min(cap, max(min_res, e_raw)), 4)
 
         hourly_plan.append(
             HourlyPlanEntry(

@@ -10,6 +10,7 @@ def add_constraints(
     variables: OptimizerVariables,
     hours: list[HourData],
     battery: BatterySpecs,
+    peak_penalty_weight: float = 0.0,
 ) -> None:
     """Adds energy balance, battery state transitions, and neutrality constraints."""
     # 1. End-of-day battery neutrality
@@ -28,5 +29,6 @@ def add_constraints(
             == hours[h].demand_kwh + variables.C[h]
         )
 
-        # Peak grid tracking: peak_G >= G[h]
-        solver.Add(variables.peak_G >= variables.G[h])
+        # Peak grid tracking: peak_G >= G[h] only if peak penalty is enabled
+        if peak_penalty_weight > 0:
+            solver.Add(variables.peak_G >= variables.G[h])

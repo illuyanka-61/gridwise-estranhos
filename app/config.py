@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     LLM_TIMEOUT_SECONDS: float = 15.0
 
     # Optimization parameters
-    PEAK_PENALTY_WEIGHT: float = 1e-4  # Secondary tie-breaker for peak shaving
+    PEAK_PENALTY_WEIGHT: float = 0.0  # Default to pure cost optimization matching competition rubric
 
     @property
     def effective_api_key(self) -> str | None:

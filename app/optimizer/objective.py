@@ -9,7 +9,7 @@ def set_objective(
     solver: pywraplp.Solver,
     variables: OptimizerVariables,
     hours: list[HourData],
-    peak_penalty_weight: float = 1e-4,
+    peak_penalty_weight: float = 0.0,
 ) -> None:
     """Sets the objective to minimize total grid cost with secondary peak shaving and no simultaneous charge/discharge."""
     objective = solver.Objective()
