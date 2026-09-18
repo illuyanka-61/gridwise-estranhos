@@ -103,7 +103,18 @@ def extract_time_window(text: str) -> Optional[list[int]]:
             # If words like 'one until three'
             if start_h is not None and end_h is not None:
                 if not start_has_meridiem and not end_has_meridiem:
-                    if "afternoon" in clean or "evening" in clean or "pm" in clean:
+                    if (
+                        "afternoon" in clean
+                        or "evening" in clean
+                        or "pm" in clean
+                        or "solar" in clean
+                        or "pv" in clean
+                        or "panel" in clean
+                        or "wash" in clean
+                        or "cleaning" in clean
+                        or "inverter" in clean
+                        or (start_h <= 6 and end_h <= 7)
+                    ):
                         if start_h < 12:
                             start_h += 12
                         if end_h < 12:
